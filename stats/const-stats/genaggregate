@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+IN=${1:-stats.dat}
+OUT=${2:-aggregate-stats.dat}
+>"$OUT"
+
+for i in {1..99}; do
+    count=$(cat stats.dat | grep -Eo "^$i ([0-9]+)" | cut -d ' ' -f 2)
+    echo $i $(( ${count//$'\n'/+} )) >> "$OUT"
+done
+

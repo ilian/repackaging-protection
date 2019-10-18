@@ -1,0 +1,96 @@
+#!/bin/sh
+# Usage:./test [format]
+# Tests will run if format is a java class
+# Otherwise, will only compile and transform to target format (e.g. J for jimple)
+
+SRCDIR=Test/src
+OUTDIR=test-out/original
+TFDIR=test-out/transformed
+TIMEOUT=5 # Time allowed per program
+FORMAT=${1:-c} # Format of output
+
+set -e
+shopt -s globstar # Allow ** to query directories recursively
+
+rm -rf test-out
+mkdir -p test-out/{original,transformed}
+
+# Compile test .java files
+echo "[+] Compiling test classes"
+SRC_JAVA_FILES=$(find $SRCDIR -name "*.java")
+javac -cp out/production/Transformer \
+      -d $OUTDIR \
+      $SRC_JAVA_FILES
+
+# Write unmodified .jimple files for completeness
+java -cp ./lib/soot.jar soot.Main \
+    -w \
+    -allow-phantom-refs \
+    -process-dir $OUTDIR \
+    -f J \
+    -d $OUTDIR
+
+# Transform
+echo "[+] Transforming class files..."
+java -ea -cp \
+    "./lib/soot.jar:./out/production/Transformer" \
+    ch.ethz.ivogels.Main \
+    -w \
+    -process-dir $OUTDIR \
+    -f $FORMAT \
+    -d $TFDIR
+
+if [ $FORMAT != "c" ] && [ $FORMAT != "class" ]; then
+    echo "[+] Transformation of test classes to format $FORMAT complete. Exiting."
+    exit 0
+fi
+
+execute(){
+# Do not exit when java runtime or program exits with a nonzero exit code
+#set +e
+for f in $1/**/*.class # Find class files in $1 and its subdirectories
+do
+    RELATIVE_PATH=$(realpath --relative-to="$1" $f) # Find relative location of .java files
+    TMP=${RELATIVE_PATH%.class} # Cut off .class suffix
+    CLASS=${TMP////.} # Replace / with . to obtain package name
+    if javap $f | grep "public static void main(java.lang.String\[\])" > /dev/null ; then
+        echo "[+] Found main method in class: $CLASS Executing class and logging behavior with timeout of $TIMEOUT seconds."
+        timeout $TIMEOUT java -cp $1:$HOME/Android/Sdk/platforms/android-26/android.jar:./out/production/Transformer $CLASS > $f.out
+    else
+        echo "[-] Ignoring file $f with no main method"
+    fi
+done
+#set -e
+}
+
+
+echo "--== Executing original class files ==--"
+
+# Execute original class files
+execute $OUTDIR
+
+echo
+echo "--== Executing transformed class files ==--"
+
+# Execute transformed class files
+execute $TFDIR
+
+echo
+echo "--== Test Results ==--"
+echo
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+for f in $OUTDIR/**/*.out
+do
+    if diff -q $f $TFDIR/$(realpath --relative-to="$OUTDIR" $f); then
+        echo -e "[${GREEN}OK${NC}] $f"
+    else
+        echo -e "[${RED}FAIL${NC}] $f"
+        ERR=1
+    fi
+done
+
+exit $ERR

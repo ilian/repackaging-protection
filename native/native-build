@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Usage: script.sh src-dir out-dir <list of archs>
+set -e
+set -x
+
+if ldd ~/Android/Sdk/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/clang | grep 'not found'; then
+    echo "[+] Entering FHS environment"
+    nix-shell --pure --run "build-fhs $*"
+    exit $?
+fi
+
+echo "$@"
+
+SRC_DIR=${1:-.}
+OUT_DIR=${2:-./out/lib}
+rm -rf $OUT_DIR
+for ABI in "${@:3}"
+do
+  BUILD_DIR=BUILD_$ABI
+  ABI_DEST_DIR=$OUT_DIR/$ABI/
+
+  cmake \
+    -DCMAKE_TOOLCHAIN_FILE=~/Android/Sdk/ndk-bundle/build/cmake/android.toolchain.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DANDROID_ABI="$ABI" \
+    -B$BUILD_DIR\
+    -H$SRC_DIR
+  make -j7 -C $BUILD_DIR
+
+  # Copy .so to $OUT_DIR
+  mkdir -p $ABI_DEST_DIR
+  cp $BUILD_DIR/*.so $ABI_DEST_DIR
+
+  rm -rf $BUILD_DIR
+done
+
+# Clear arguments, as nix executes "$@" after this script. TODO: Refactor this ugly hack
+for i
+do
+  shift;
+done
+

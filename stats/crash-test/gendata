@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Monkey should not disable internet access
+# Workaround: Hide all quick settings buttons: adb shell settings put secure sysui_qs_tiles ""
+trap "exit" INT
+set -x
+
+TARGET_FILE=${1:-stats.dat} # Stats file used for plotting
+LOG_PATH=$(realpath ${2:-./logs}) # Directory of transformation errors
+mkdir -p "$LOG_PATH"
+echo "APP STOCK_ERR_CODE PROT_ERR_CODE" > "$TARGET_FILE"
+
+runMonkey() {
+    adb shell monkey \
+        -s 69 \
+        --throttle 100 \
+        --pct-syskeys 0 `# Do not mess with the volume keys (note: also ignores back button)` \
+        --kill-process-after-error \
+        --monitor-native-crashes \
+        -p "$1" 500 &>> "$2"
+}
+
+PROJECT_ROOT=../..
+
+for f in ../apks/fdroid-sample/*.apk
+do
+    APK=$(realpath $f)
+    pushd $PROJECT_ROOT
+    PACKAGE_NAME=$(aapt dump badging "$APK" | awk '/package/{gsub("name=|'"'"'","");  print $2}') || exit
+    STOCK_ERR_CODE=0
+    PROT_ERR_CODE=0
+
+    # Install stock APK and get result
+    adb uninstall $PACKAGE_NAME
+    err_code=$?
+    if [ "$err_code" -ne 0 ] && [ "$err_code" -ne 255 ]; then
+        popd
+        echo "Failed to uninstall $PACKAGE_NAME"
+        echo "$PACKAGE_NAME" >> failedtouninstall.txt
+        continue
+    fi
+
+    if ! adb install "$APK"; then
+       popd
+       echo "Failed to install $PACKAGE_NAME"
+       echo "$PACKAGE_NAME" >> failedtoinstall.txt
+       continue
+    fi
+
+    runMonkey "$PACKAGE_NAME" /dev/null
+    STOCK_ERR_CODE=$?
+
+    # Transform APK and install protected APK, get result
+    SOOT_ERR_PATH="$LOG_PATH/$PACKAGE_NAME.soot.err"
+    MONKEY_ERR_PATH="$LOG_PATH/$PACKAGE_NAME.monkey.err" # Log file containing exceptions gathered with monkey
+    ADB_ERR_PATH="$LOG_PATH/$PACKAGE_NAME.adb.err"
+    ant clean transform-and-install-apk -Dsrc-apk="$APK" &> "$SOOT_ERR_PATH"
+    if [ $? -ne 0 ]; then
+        PROT_ERR_CODE=-69
+    else
+        rm "$SOOT_ERR_PATH" # Remove log file if transformation was successful
+        adb logcat -c # Clear old logs
+        runMonkey "$PACKAGE_NAME" "$MONKEY_ERR_PATH"
+        PROT_ERR_CODE=$?
+        adb logcat -d > "$ADB_ERR_PATH"
+
+        if [ $PROT_ERR_CODE -eq 0 ]; then
+            rm "$MONKEY_ERR_PATH"
+            rm "$ADB_ERR_PATH"
+        fi
+    fi
+    adb uninstall $PACKAGE_NAME # Uninstall APK to avoid INSTALL_FAILED_DUPLICATE_PERMISSION
+                                # to avoid installation of APK with same permission as another
+                                # but with a different developer key, because the next step
+                                # installs APK of the original developer
+
+    popd
+    # Write results to file
+    echo "$PACKAGE_NAME $STOCK_ERR_CODE $PROT_ERR_CODE" >> $TARGET_FILE
+done

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Quick and dirty script that downloads all APKs from the f-droid website
+index="https://f-droid.org/en/packages/ $(echo https://f-droid.org/en/packages/{2..53}/index.html)"
+OUT=${1:-./fdroid}
+for i in $index; do
+    raw=$(curl "$i")
+    i=0
+    grep -Eo '"package-header" href="([^"{]+)' <<< $raw | while read -r line ; do
+    i=$((i+1))
+        if [ $i -eq 31 ]; then
+            break
+        fi
+        package="${line##*packages/}"
+        raw=$(curl "https://f-droid.org/en/packages/$package/")
+        dl_url=$(grep -Eo '(href="([^"{]+).apk)' <<< $raw | tail -n 1 | cut -d '"' -f 2)
+        mkdir -p "$OUT"
+        wget -P "$OUT" "$dl_url"
+    done
+done

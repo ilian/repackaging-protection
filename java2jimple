@@ -1,0 +1,16 @@
+#!/bin/sh
+# A utility script that compiles .java files to jimple files
+# Usage: ./java2jimple file.java
+set -e
+if [ $# -eq 0 ]; then
+    echo "Usage: `basename $0` file.java"
+    exit 0
+fi
+filename=`basename $1`
+target=`mktemp -d`
+
+javac -d $target $1
+java -cp ./lib/soot.jar soot.Main \
+    -f J \
+    -process-dir $target \
+    -d ./sootOutput/

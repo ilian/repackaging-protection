@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# Usage: ./sign-and-deploy.sh [apk-path]
+
+# Stop script when interupt signal received
+trap "exit" INT 
+# Abort script when any command returns non-zero value
+set -e
+set -x
+
+KEYSTORE=${KEYSTORE_NAME:-dummykeystore}
+CERT_ALIAS=${KEYSTORE_ALIAS:-signkey}
+KEYSTORE_PASS=${KEYSTORE_PASS:-123456}
+
+# Build a new keystore if none exist yet
+if [ ! -f $KEYSTORE ]; then
+    echo "[+] Signing key with name $KEYSTORE not found. Creating a dummy key in `pwd`"
+    keytool -genkey -v -keystore $KEYSTORE -alias $CERT_ALIAS -keyalg RSA \
+        -keysize 2048 -validity 365 << EOF
+$KEYSTORE_PASS
+$KEYSTORE_PASS
+John Doe
+Dummy organizational unit
+Dummy organization
+Dummy City
+Dummy State
+DM
+yes
+EOF
+fi
+
+# Sign specified APK with jarsigner
+APK=${1:-sootOutput/app-debug.apk}
+echo "[+] Signing $APK with keystore $KEYSTORE"
+# Remove old MANIFEST.MF, otherwise we get an INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION
+# when installing: https://github.com/Sable/soot/issues/683
+zip -d "$APK" META-INF/MANIFEST.MF "META-INF/*.SF" "META-INF/*.RSA"
+jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore $KEYSTORE \
+    -tsa http://timestamp.digicert.com -storepass $KEYSTORE_PASS "$APK" "$CERT_ALIAS"
+
+# Align APK to increase load performance
+APK_ALIGNED=${APK}-aligned.apk
+echo "[+] Writing aligned APK"
+zipalign 4 "$APK" "$APK_ALIGNED"
+rm "$APK"
+mv "$APK_ALIGNED" "$APK"
+
+# Deploy APK to device
+PACKAGE_NAME=$(aapt dump badging "$APK" | awk '/package/{gsub("name=|'"'"'","");  print $2}')
+echo "[+] Uninstalling previous version from device if insalled"
+set +e # Ignore uninstall failure if app was already uninstalled
+adb uninstall $PACKAGE_NAME
+set -e
+
+echo "[+] Deploying signed APK to device"
+adb install -t "$APK"

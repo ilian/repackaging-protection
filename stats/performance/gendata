@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Requires the APK to be compiled somewhere in a subdirectory
+trap "exit" INT
+set -e
+
+TARGET_FILE=${1:-stats.dat} # Stats file used for plotting
+N=${2:-50} # Number of samples
+echo "OVERHEAD_INC_MISS OVERHEAD_VI_MISS OVERHEAD_INC_HIT OVERHEAD_VI_HIT" > "$TARGET_FILE"
+
+# Get value from ... KEY=VALUE ...
+# $1: Contents
+# $2: Key
+getValue() {
+    # Assumed to be only 1 = present per line
+    echo "$1" | grep "$2=" | cut -d = -f 2
+}
+
+PROJECT_ROOT=../../
+
+APK=$(realpath "$(find . -name '*.apk' | grep '.')")
+PACKAGE_NAME=$(aapt dump badging "$APK" | awk '/package/{gsub("name=|'"'"'","");  print $2}') || exit
+
+pushd $PROJECT_ROOT
+ant clean transform-and-install-apk -Dsrc-apk="$APK"
+popd
+
+for i in $(seq 1 $N); do
+    adb shell am force-stop $PACKAGE_NAME
+    adb logcat -c # Clear old logs
+    adb shell monkey -p $PACKAGE_NAME 1 # Launch app
+    res=""
+    while [ -z "$res" ]; do
+        echo "[+] Sleeping until results are printed out with key BENCH_RUN"
+        sleep 0.5
+        logs=$(adb logcat -d)
+        res="$(getValue "$logs" BENCH_RUN)"
+    done
+    # Write results to file
+    echo "[+] Writing results to $TARGET_FILE"
+    tee -a "$TARGET_FILE" <<< $res
+done

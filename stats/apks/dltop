@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fetches a list of package names of the top free apps from the Play Store
+trap "exit" INT
+raw=$(curl -d "num=100&ipf=1&xhr=1&hl=nl" -X POST https://play.google.com/store/apps/collection/topselling_free)
+regex='details\?id=([^"]+)'
+list=$(grep -Eo "$regex" <<< $raw | uniq | cut -d = -f 2)
+
+for i in $list
+do
+    echo "Downloading $i"
+    gplaycli -f downloads -d $i
+done

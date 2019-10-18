@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Create a directory of symlinks to random files in $1 of size $2
+SRC=${1:-./fdroid}
+DST="$SRC-sample"
+SIZE=${2:-200}
+
+mkdir -p "$DST"
+find "$SRC" -type f -exec readlink -f {} \; | shuf -n $SIZE | tr '\n' '\0' | xargs -0 -i ln -s "{}" "$DST"

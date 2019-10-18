@@ -1,0 +1,17 @@
+*.class
+*.log
+*.apk
+*.sig
+lib/_*
+out/
+sootOutput/
+test-out/
+error/
+Test/_*
+dummykeystore
+native/BUILD_*
+
+# Stats
+*.dat
+stats/**/*.pdf
+

@@ -1,0 +1,31 @@
+set -x
+# Target app should be selected as debug app in developer options on the Android device
+# Make sure the "Wait for debugger" toggle is selected
+PORT=5039
+JDB_PORT=12345
+# Obtain pid and package without jdwp:
+# PACKAGE=com.suhelloworld.sulatha.helloworldapplication
+# TARGET_PID=$(adb shell run-as $PACKAGE ps -o PID,NAME | grep $PACKAGE | awk '{print $1;}')
+TARGET_PID=$((timeout 2 adb jdwp &) | head -n 1)
+PACKAGE=$(adb shell cat /proc/$TARGET_PID/cmdline)
+
+if [ -z "$TARGET_PID" ]; then
+    echo No running process!
+    exit 1
+fi
+
+echo Remotely attaching to package "($PACKAGE)" with PID $TARGET_PID on port $PORT
+
+adb push ~/Android/Sdk/ndk-bundle/prebuilt/android-arm64/gdbserver/gdbserver /sdcard
+adb shell run-as $PACKAGE cp /sdcard/gdbserver .
+adb shell run-as $PACKAGE chmod 755 ./gdbserver
+# breaks tui # (echo -e "target remote | adb shell run-as $PACKAGE ./gdbserver - --attach $TARGET_PID" && cat) | gdb 
+adb forward tcp:$PORT tcp:$PORT
+adb shell run-as $PACKAGE killall gdbserver
+adb shell run-as $PACKAGE ./gdbserver :$PORT --attach $TARGET_PID &
+sleep 0.1 # Wait for gdbserver to  attach
+adb forward tcp:$JDB_PORT jdwp:$TARGET_PID
+(sleep infinity | jdb -attach localhost:$JDB_PORT | sed "s/^/[jdb] /")& # | grep Initializing | head -1 | xargs -I % echo -e "exit\n" > fifo )
+init=$(mktemp)
+echo "target remote localhost:$PORT" > $init
+gdb -x $init

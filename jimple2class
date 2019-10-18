@@ -1,0 +1,9 @@
+#!/bin/sh
+# A utility script that compiles .jimple files to .class files
+# Usage: ./jimple2class <directory containing .jimple files>
+
+java -cp ./lib/soot.jar soot.Main \
+    -f c \
+    -allow-phantom-refs \
+    -process-dir $1 \
+    -d ./sootOutput/

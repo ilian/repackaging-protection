@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Monkey should not disable internet access
+# Workaround: Hide all quick settings buttons: adb shell settings put secure sysui_qs_tiles ""
+# We need to make sure the log buffer is large enough to collect stats from beginning of app
+trap "exit" INT
+set -e
+set -x
+
+OUT=${1:-stats.dat} # Stats file used for plotting
+TIME=120
+echo "APP_ID MISS_COUNT HIT_COUNT OVERHEAD_SEC OVERHEAD_PCT" > "$OUT"
+
+runMonkey() {
+    set +e
+    # --kill-process-after-error
+    adb shell timeout $TIME monkey \
+        -s 69 \
+        --throttle 100 \
+        --pct-syskeys 0 `# Do not mess with the volume keys (note: also ignores back button)` \
+        --pct-appswitch 0 \
+        --ignore-crashes \
+        --monitor-native-crashes \
+        -p "$1" $((10**9))
+
+    if [ $? -ne 142 ]; then
+        echo "Monkey returned with error code $?"
+        exit
+    fi
+    set -e
+}
+
+
+PROJECT_ROOT=../../
+
+for f in ../block-count/apks/*.apk
+do
+    APK=$(realpath $f)
+    pushd $PROJECT_ROOT
+    PACKAGE_NAME=$(aapt dump badging "$APK" | awk '/package/{gsub("name=|'"'"'","");  print $2}')
+
+    # Transform APK and install protected APK, get result
+    ant clean transform-and-install-apk -Dsrc-apk="$APK"
+
+    adb shell am force-stop $PACKAGE_NAME
+    adb logcat -c # Clear old logs
+
+    runMonkey "$PACKAGE_NAME" # Bench app
+    logs=$(adb logcat -d)
+    echo "$logs" | grep "SDCLOADER_INIT" > /dev/null || echo "Log buffer not large enough! Please adjust it in settings." # Make sure the log buffer is large enough by testing if we have logged program start
+    popd
+    MISS=$(echo "$logs" | grep -o "BLOCK_MISS=" | wc -l)
+    HIT=$(echo "$logs" | grep -o "BLOCK_HIT" | wc -l)
+    OVERHEAD=$(bc <<< "$MISS*0.027+$HIT*0.003")
+    OVERHEAD_PCT=$(bc <<< "scale=2; $OVERHEAD*100/$TIME")
+    tee -a "$OUT" <<< "$PACKAGE_NAME $MISS $HIT $OVERHEAD $OVERHEAD_PCT"
+done

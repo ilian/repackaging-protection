@@ -1,0 +1,45 @@
+#!/bin/sh
+
+# Usage: ./transform.py packagename
+# This script pulls an APK from a device, transforms it with Soot, and deploys
+# it to the device. Make sure to not transform an already transformed app.
+# Install a fresh copy from the play store first.
+# Maybe TODO: Fetch APK directly from the Play store.
+
+set -e
+
+if [[ $# -eq 0 ]]; then
+    echo "[-] No packages listed. Please give a package name as an argument"
+    adb shell pm list packages
+    echo
+    echo "Usage: `basename $0` packagename"
+    exit 0
+fi
+
+APK_PATH=$(adb shell pm path $1 | sed 's/package://') # Fetch APK path from package name
+TMP_PATH=`mktemp --suff .apk`
+OUTPUT_PATH=`mktemp -d` # Soot needs a dedicated directory to output its transformed APK
+echo "[+] Pulling APK from device to temporary file"
+# Pull APK to temporary file
+adb pull $APK_PATH $TMP_PATH
+
+# Transform APK
+echo "[+] Transforming APK... This may take a while."
+java -cp \
+"./lib/soot.jar:./out/production/Transformer" \
+ch.ethz.ivogels.Main \
+-w \
+-src-prec apk \
+-f dex \
+-android-jars $HOME/Android/Sdk/platforms \
+-process-multiple-dex \
+-allow-phantom-refs \
+-process-dir $TMP_PATH \
+-d $OUTPUT_PATH
+
+FINAL_PATH="$OUTPUT_PATH/$(basename $TMP_PATH)"
+./sign-and-deploy $FINAL_PATH
+
+rm $FINAL_PATH
+rmdir $OUTPUT_PATH
+rm $TMP_PATH

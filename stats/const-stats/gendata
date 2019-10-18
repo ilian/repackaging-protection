@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+trap "exit" INT
+set -e
+set -x
+
+TARGET_FILE=${1:-stats.dat}
+echo "APP COUNT VALUE" > $TARGET_FILE
+
+COUNTER=1
+for f in ../apks/downloads/*.apk
+do
+    TARGET=$(realpath $f)
+    pushd ../../
+    HASHED_VALS=$(ant clean transform-apk-to-jimple -Dsrc-apk="$TARGET" | grep STATS_CONST | cut -d = -f 2)
+    popd
+    GROUPED_VALS=$(sort <<< "$HASHED_VALS" | uniq -c)
+    while read -r line
+    do
+        echo $COUNTER $line | tee -a $TARGET_FILE
+    done <<< "$GROUPED_VALS"
+    (( COUNTER++ ))
+done

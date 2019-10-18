@@ -1,0 +1,88 @@
+<project>
+    <!-- default values for each property -->
+    <property name="src-apk" value="app.apk" />
+    <property name="android-jar-path" value="${user.home}/Android/Sdk/platforms/android-26/android.jar" />
+
+    <target name="clean">
+        <delete dir="out" />
+        <delete dir="sootOutput" />
+        <delete dir="test-out" />
+    </target>
+
+    <target name="compile-transformer">
+        <mkdir dir="out/production/Transformer" />
+        <javac srcdir="src" destdir="out/production/Transformer" includeantruntime="false" debug="true">
+            <classpath>
+                <pathelement path="lib/soot.jar" />
+                <pathelement path="${android-jar-path}" />
+            </classpath>
+        </javac>
+    </target>
+
+    <target name="test" depends="compile-transformer">
+        <exec executable="${basedir}/test" dir="${basedir}" failonerror="true">
+            <env key="RP_ANDROID_JAR" value="${android-jar-path}" />
+        </exec>
+    </target>
+
+    <macrodef name="soot">
+        <attribute name="soot-class" default="ch.ethz.ivogels.Main" />
+        <attribute name="src-format" default="apk" />
+        <attribute name="src-dir" default="${src-apk}" />
+        <attribute name="target-format" />
+        <attribute name="target-dir" default="sootOutput" />
+        <sequential>
+            <java classname="@{soot-class}" fork="true" failonerror="true">
+                <env key="RP_ANDROID_JAR" value="${android-jar-path}" />
+                <jvmarg value="-ea" /> <!-- Enable assertions -->
+                <arg line="-w -src-prec @{src-format} -f @{target-format} -android-jars ${user.home}/Android/Sdk/platforms -process-multiple-dex -allow-phantom-refs -process-dir '@{src-dir}' -d '@{target-dir}'" />
+                <classpath>
+                    <pathelement path="lib/soot.jar" />
+                    <pathelement path="out/production/Transformer" />
+                </classpath>
+            </java>
+        </sequential>
+    </macrodef>
+
+    <target name="convert-dex-to-jimple">
+        <mkdir dir="sootOutput/conversion" />
+        <soot soot-class="soot.Main"
+              src-dir="sootOutput/app/classes.dex"
+              src-format="apk"
+              target-dir="sootOutput/conversion"
+              target-format="J" />
+    </target>
+
+    <target name="convert-apk-to-jimple">
+        <mkdir dir="sootOutput/conversion" />
+        <soot soot-class="soot.Main"
+              target-format="J"
+              target-dir="sootOutput/conversion" />
+    </target>
+
+    <target name="transform-apk-to-jimple" depends="compile-transformer">
+        <soot target-format="J" />
+    </target>
+
+    <target name="transform-apk-to-apk" depends="compile-transformer">
+        <soot target-format="dex"/>
+    </target>
+
+    <target name="transform-and-install-apk" depends="transform-apk-to-apk">
+        <first id="first">
+            <fileset dir="sootOutput" includes="*.apk" />
+        </first>
+        <exec executable="${basedir}/sign-and-deploy" dir="${basedir}" failonerror="true">
+            <env key="RP_ANDROID_JAR" value="${android-jar-path}" />
+            <arg value="${toString:first}" />
+        </exec>
+    </target>
+
+    <target name="transform-test-to-jimple" depends="compile-transformer">
+        <exec executable="${basedir}/test" dir="${basedir}" failonerror="true" >
+            <env key="RP_ANDROID_JAR" value="${android-jar-path}" />
+            <arg value="J" />
+        </exec>
+    </target>
+
+</project>

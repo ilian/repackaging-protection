@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+FILE=${1:-stats.dat}
+SIZE=$(($(wc -l < "$FILE")-1))
+
+percentage() {
+    echo "$(bc <<< "scale=2; $1*100/$SIZE")%"
+}
+echo "Size of sample: $SIZE"
+echo "Transformation errors:" $(percentage $(grep -E ' -69' "$FILE" | wc -l))
+echo "Runtime exception introduced:" $(percentage $(grep -E ' 0 [1-9]\d*' "$FILE"| wc -l))
